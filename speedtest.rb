@@ -11,8 +11,6 @@ server_params = SpeedTestConfig.server_params || [
   {:host => '192.168.1.2', :protocol => :afp, :afp_volume => 'IT Files'}
 ]
 
-puts server_params
-
 # 1 MB of random data
 transfer_file_params ||= {:bytes => 1*1000*1000, :type => :random}
 
@@ -36,6 +34,11 @@ def shellescape(str)
 
   return str
 end
+
+def filesystem(path)
+  return nil unless File::exists?(path)
+  `df -m #{path} | tail --lines=+2 | cut -f1 -d' '`.strip
+end
 #########
 # Define class
 class Server
@@ -46,6 +49,9 @@ class Server
     raise "host required" unless params[:host]
     @host = params[:host]
     @protocol = params[:protocol] || :ssh
+    @username = params[:username] || ''
+
+    @connected = false
 
     if @protocol == :afp
       raise "afp_volume required for host=#{@host}" unless params[:afp_volume]
@@ -57,18 +63,31 @@ class Server
     puts "Connecting to #{@host} via #{@protocol}..."
     case @protocol
     when :afp
-      if File::exists?("/Volumes/#{@afp_volume}")
-        # abort "#{@afp_volume} may already be mounted. Please unmount and retry."
-      else
-        puts "Mounting volume: #{@afp_volume}..."
-#        cmd = "osascript -e 'tell application \"Finder\" to mount volume \"afp://192.168.120.3/@afp_volume\"'"
-
-        Dir.mkdir("/Volumes/#{@host}")
-        rtn = "mount_afp -i \"afp://#{@username}\@#{@host}/@afp_volume\" /Volumes/#{@host}"
-        puts "cmd: #{cmd}"
-        system(cmd)
+      mount_point = "/Volumes/ServerSpeedTest_#{@host}"
+      filesystem_initial = filesystem(mount_point)
+      if filesystem_initial
+        if filesystem_initial =~ /^afp_/
+          
+          abort "#{mount_point} is mounted already. In service to keeping this test reproducable, please unmount and then retry. Use:\numount #{mount_point}"
+        elsif filesystem_initial =~ /^\/dev\//
+          abort "#{mount_point} exists, but is not mounted. In service to keeping this test reproducable, please remove the directory and then retry. Use:\nrmdir #{mount_point}"
+        else
+          raise "Unhandled pattern for filesystem_initial: #{filesystem_initial}"
+        end
       end
-      @afp_destfile = "/Volumes/#{@afp_volume}/speedtest_temporary_destfile.#{$$}"
+
+      # puts "Mounting volume at: #{mount_point}"
+
+      FileUtils.mkdir_p(mount_point)
+      cmd = "mount_afp -i \"afp://#{@username}\@#{@host}/#{@afp_volume}\" #{mount_point}"
+      puts "cmd: #{cmd}"
+      puts "Please enter the password for #{@username}"
+      system(cmd)
+
+      abort "Unable to mount #{mount_point}" if filesystem(mount_point) == filesystem_initial
+        
+      @afp_destfile = "#{mount_point}/speedtest_temporary_destfile.#{$$}"
+      @connected = true
     else
       raise "Attempt to connect with invalid protocol: #{@protocol}"
     end
@@ -191,8 +210,10 @@ end
 servers = Set.new
 server_params.each {|server_param| servers << Server.new(server_param)}
 
-servers.each do |server|
-  server.connect
+begin
+  servers.each {|server| server.connect}
+rescue
+  puts "Failed to connect: #{$!}"
 end
 
 transfer_file = TestFile.new(transfer_file_params.merge({:basename => 'speedtest'}))
@@ -203,9 +224,7 @@ number_of_times_to_run_tests.times do |n|
   Test.new(:servers => servers, :transfer_file => transfer_file).run.each {|r| test_results << r}
 end
 
-# servers.each do |server|
-#   server.disconnect
-# end
+servers.each {|server| server.disconnect}
 
 #puts test_results.inspect
 
