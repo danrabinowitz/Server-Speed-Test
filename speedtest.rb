@@ -4,13 +4,14 @@ require 'tempfile'
 require 'set'
 require_relative 'config.rb'
 
-
 ###########
 # Set default configuration
-server_params ||= [
-  {:ip => '192.168.1.1', :protocol => :afp},
-  {:ip => '192.168.1.2', :protocol => :afp, :afp_volume => 'IT Files'}
+server_params = SpeedTestConfig.server_params || [
+  {:host => '192.168.1.1', :protocol => :afp},
+  {:host => '192.168.1.2', :protocol => :afp, :afp_volume => 'IT Files'}
 ]
+
+puts server_params
 
 # 1 MB of random data
 transfer_file_params ||= {:bytes => 1*1000*1000, :type => :random}
@@ -39,28 +40,31 @@ end
 # Define class
 class Server
 
-  attr_reader :ip, :protocol, :afp_destfile
+  attr_reader :host, :protocol, :afp_destfile
 
   def initialize(params)
-    raise "ip required" unless params[:ip]
-    @ip = params[:ip]
+    raise "host required" unless params[:host]
+    @host = params[:host]
     @protocol = params[:protocol] || :ssh
 
     if @protocol == :afp
-      raise "afp_volume required" unless params[:afp_volume]
+      raise "afp_volume required for host=#{@host}" unless params[:afp_volume]
       @afp_volume = params[:afp_volume]
     end
   end
   
   def connect
-    puts "Connecting to #{@ip} via #{@protocol}..."
+    puts "Connecting to #{@host} via #{@protocol}..."
     case @protocol
     when :afp
       if File::exists?("/Volumes/#{@afp_volume}")
         # abort "#{@afp_volume} may already be mounted. Please unmount and retry."
       else
         puts "Mounting volume: #{@afp_volume}..."
-        cmd = "osascript -e 'tell application \"Finder\" to mount volume \"afp://192.168.120.3/@afp_volume\"'"
+#        cmd = "osascript -e 'tell application \"Finder\" to mount volume \"afp://192.168.120.3/@afp_volume\"'"
+
+        Dir.mkdir("/Volumes/#{@host}")
+        rtn = "mount_afp -i \"afp://#{@username}\@#{@host}/@afp_volume\" /Volumes/#{@host}"
         puts "cmd: #{cmd}"
         system(cmd)
       end
@@ -115,7 +119,7 @@ class Test
   end
 
   def upload_rate_bps(server)
-#    puts "About to upload file to #{server.ip}"
+#    puts "About to upload file to #{server.host}"
     case server.protocol
     when :afp
 #      puts "About to copy #{@transfer_file.path} to #{server.afp_destfile}"
@@ -138,7 +142,7 @@ class Test
   end
   
   def inplace_editing_ops_per_sec(server)
-#    puts "About to edit file inplace on #{server.ip}"
+#    puts "About to edit file inplace on #{server.host}"
     ops = 100
     case server.protocol
     when :afp
@@ -157,7 +161,7 @@ class Test
   end
 
   def download_rate_bps(server)
-#    puts "About to download file to #{server.ip}"
+#    puts "About to download file to #{server.host}"
     case server.protocol
     when :afp
 #      puts "About to copy #{server.afp_destfile} to #{@transfer_file.path}"
@@ -210,5 +214,5 @@ servers.each do |server|
   results_for_server = test_results.delete_if {|r| r[:server] != server}
   totals = results_for_server.inject {|sums, test_result| {:upload_rate_bps => sums[:upload_rate_bps] + test_result[:upload_rate_bps], :download_rate_bps => sums[:download_rate_bps] + test_result[:download_rate_bps], :inplace_editing_ops_per_sec => sums[:inplace_editing_ops_per_sec] + test_result[:inplace_editing_ops_per_sec]}}
   num = results_for_server.size
-  printf "%20s %15.1f %15.1f %30.1f\n", server.ip, totals[:upload_rate_bps] / num, totals[:download_rate_bps] / num, totals[:inplace_editing_ops_per_sec] / num
+  printf "%20s %15.1f %15.1f %30.1f\n", server.host, totals[:upload_rate_bps] / num, totals[:download_rate_bps] / num, totals[:inplace_editing_ops_per_sec] / num
 end
