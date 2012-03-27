@@ -12,7 +12,7 @@ server_params = SpeedTestConfig.server_params
 transfer_file_params ||= {:bytes => 1*1000*1000, :type => :random}
 
 # Number of times to run the tests
-number_of_times_to_run_tests = 1
+number_of_times_to_run_tests = 2
 
 #########
 def filesystem(path)
@@ -50,8 +50,6 @@ class Server
     @protocol = params[:protocol] || :ssh
     @username = params[:username] || ''
 
-    @connected = false
-
     if @protocol == :afp
       raise "afp_volume required for host=#{@host}" unless params[:afp_volume]
       @afp_volume = params[:afp_volume]
@@ -84,14 +82,13 @@ class Server
       raise "Unable to mount #{mount_point}" if filesystem(mount_point) == filesystem_initial
         
       @afp_destfile = "#{mount_point}/speedtest_temporary_destfile.#{$$}"
-      @connected = true
     else
       raise "Attempt to connect with invalid protocol: #{@protocol}"
     end
   end
 
   def disconnect
-    puts "Disconnecting from #{@host}..."
+    puts "  Disconnecting from #{@host}..."
     case @protocol
     when :afp
       mount_point = "/Volumes/#{@afp_volume}"
@@ -140,7 +137,15 @@ class Test
   def run
     @servers.each do |server|
       server.connect
-      @test_results << {:server => server, :upload_rate_bps => upload_rate_bps(server), :inplace_editing_ops_per_sec => inplace_editing_ops_per_sec(server), :download_rate_bps => download_rate_bps(server)}
+      upload_rate_bps = upload_rate_bps(server)
+      server.disconnect
+      server.connect
+      inplace_editing_ops_per_sec = inplace_editing_ops_per_sec(server)
+      server.disconnect
+      server.connect
+      download_rate_bps = download_rate_bps(server)
+      server.disconnect
+      @test_results << {:server => server, :upload_rate_bps => upload_rate_bps, :inplace_editing_ops_per_sec => inplace_editing_ops_per_sec, :download_rate_bps => download_rate_bps}
       FileUtils.safe_unlink server.afp_destfile
       server.disconnect
     end
@@ -179,7 +184,7 @@ class Test
       time_start = Time.now
       ops.times do |n|
         file1.seek(Random.rand(@transfer_file.bytes - 1000))
-        file1.getc
+        file1.read(1000)
         file1.seek(Random.rand(@transfer_file.bytes))
         file1.write(Array.new(1000) { rand(256) }.pack('c*'))    
       end
@@ -229,12 +234,12 @@ number_of_times_to_run_tests.times do |n|
   Test.new(:servers => servers, :transfer_file => transfer_file).run.each {|r| test_results << r}
 end
 
-puts test_results.inspect
+#puts test_results.inspect
 
-printf "%20s %15s %15s %30s\n", '', 'Upload (bps)', 'Download (bps)', 'Inplace Editing (ops / sec)'
+printf "%20s %15s %15s %30s\n", '', 'Upload (Mbps)', 'Download (Mbps)', 'Inplace Editing (ops / sec)'
 servers.each do |server|
   results_for_server = test_results.reject {|r| r[:server] != server}
   totals = results_for_server.inject {|sums, test_result| {:upload_rate_bps => sums[:upload_rate_bps] + test_result[:upload_rate_bps], :download_rate_bps => sums[:download_rate_bps] + test_result[:download_rate_bps], :inplace_editing_ops_per_sec => sums[:inplace_editing_ops_per_sec] + test_result[:inplace_editing_ops_per_sec]}}
   num = results_for_server.size
-  printf "%20s %15.1f %15.1f %30.1f\n", server.host, totals[:upload_rate_bps] / num, totals[:download_rate_bps] / num, totals[:inplace_editing_ops_per_sec] / num
+  printf "%20s %15.1f %15.1f %30.1f\n", server.host, totals[:upload_rate_bps] / num / (1000 * 1000) , totals[:download_rate_bps] / num / (1000 * 1000), totals[:inplace_editing_ops_per_sec] / num
 end
