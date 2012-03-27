@@ -9,10 +9,10 @@ require_relative 'config.rb'
 server_params = SpeedTestConfig.server_params
 
 # 1 MB of random data
-transfer_file_params ||= {:bytes => 1*1000*1000, :type => :random}
+transfer_file_params ||= {:bytes => 10*1000*1000, :type => :random}
 
 # Number of times to run the tests
-number_of_times_to_run_tests = 2
+number_of_times_to_run_tests = 3
 
 #########
 def filesystem(path)
@@ -146,8 +146,6 @@ class Test
       download_rate_bps = download_rate_bps(server)
       server.disconnect
       @test_results << {:server => server, :upload_rate_bps => upload_rate_bps, :inplace_editing_ops_per_sec => inplace_editing_ops_per_sec, :download_rate_bps => download_rate_bps}
-      FileUtils.safe_unlink server.afp_destfile
-      server.disconnect
     end
     @test_results
   end
@@ -177,7 +175,7 @@ class Test
   
   def inplace_editing_ops_per_sec(server)
 #    puts "About to edit file inplace on #{server.host}"
-    ops = 100
+    ops = 30
     case server.protocol
     when :afp
       file1 = File.new(server.afp_destfile, "r+")
@@ -213,6 +211,8 @@ class Test
       raise "Unable to handle protocol type=#{server.protocol}"
     end
 
+    FileUtils.safe_unlink server.afp_destfile
+
     duration_seconds = (time_finish - time_start)
 #    puts "duration_seconds: #{duration_seconds}"
     download_rate_bps = (@transfer_file.bytes*8) / duration_seconds
@@ -241,5 +241,5 @@ servers.each do |server|
   results_for_server = test_results.reject {|r| r[:server] != server}
   totals = results_for_server.inject {|sums, test_result| {:upload_rate_bps => sums[:upload_rate_bps] + test_result[:upload_rate_bps], :download_rate_bps => sums[:download_rate_bps] + test_result[:download_rate_bps], :inplace_editing_ops_per_sec => sums[:inplace_editing_ops_per_sec] + test_result[:inplace_editing_ops_per_sec]}}
   num = results_for_server.size
-  printf "%20s %15.1f %15.1f %30.1f\n", server.host, totals[:upload_rate_bps] / num / (1000 * 1000) , totals[:download_rate_bps] / num / (1000 * 1000), totals[:inplace_editing_ops_per_sec] / num
+  printf "%20s %15.2f %15.2f %30.2f\n", server.host, totals[:upload_rate_bps] / num / (1000 * 1000) , totals[:download_rate_bps] / num / (1000 * 1000), totals[:inplace_editing_ops_per_sec] / num
 end
