@@ -23,12 +23,14 @@ end
 # Define classes
 class Server
 
-  attr_reader :host, :protocol, :afp_destfile
+  attr_reader :host, :protocol, :afp_destfile, :port
 
   def initialize(params)
     raise "host required" unless params[:host]
     @host = params[:host]
     @protocol = params[:protocol] || :ssh
+    @port = params[:port] || 548
+    @username = params[:username]
 
     if @protocol == :afp
       raise "afp_volume required for host=#{@host}" unless params[:afp_volume]
@@ -55,8 +57,11 @@ class Server
 
       # puts "Mounting volume at: #{mount_point}"
       
-      cmd = "osascript -e 'tell application \"Finder\" to mount volume \"afp://#{@host}/#{@afp_volume}\"'"
-#      puts "cmd: #{cmd}"
+      port = ":#{@port}"
+      username = ''
+      username = "#{@username}@" unless @username.nil?
+      cmd = "osascript -e 'tell application \"Finder\" to mount volume \"afp://#{username}#{@host}#{port}/#{@afp_volume}\"'"
+      puts "cmd: #{cmd}"
       `#{cmd}`
 
       raise "Unable to mount #{mount_point}" if filesystem(mount_point) == filesystem_initial
